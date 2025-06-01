@@ -42,10 +42,26 @@ func sessionMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		firstFourOfCookie := "none"
+		cookie, err := r.Cookie("session_id")
+		if err == nil {
+			firstFourOfCookie = cookie.Value[:4]
+		}
+		log.Printf("%s %s %s", r.Method, firstFourOfCookie, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func middleware(next http.Handler) http.Handler {
+	return sessionMiddleware(loggingMiddleware(next))
+}
+
 func main() {
 	fs := http.FileServer(http.Dir("static"))
 
-	http.Handle("/", fs)
+	http.Handle("/", middleware(fs))
 
 	log.Println("Server listening on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
