@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"os"
 )
 
 func generateRandomSessionID() (string, error) {
@@ -59,10 +60,13 @@ func middleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	fs := http.FileServer(http.Dir("static"))
-
 	http.Handle("/", middleware(fs))
-
-	log.Println("Server listening on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("Server listening on port " + port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
