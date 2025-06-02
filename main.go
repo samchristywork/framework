@@ -6,21 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
-
-const runtime = `
-	console.log("Runtime JavaScript loaded");
-	function getCookie(name) {
-	  const value = '; ' + document.cookie;
-	  const parts = value.split('; ' + name + '=');
-	  if (parts.length === 2) return parts.pop().split(';').shift();
-	  return null;
-	}
-
-	function deleteCookie(name) {
-	  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-	}
-`
 
 func generateRandomSessionID() (string, error) {
 	b := make([]byte, 32)
@@ -43,10 +30,10 @@ func sessionMiddleware(next http.Handler) http.Handler {
 			}
 
 			cookie = &http.Cookie{
-				Name:     "session_id",
-				Value:    sessionID,
-				Path:     "/",
-				Secure:   true,
+				Name:   "session_id",
+				Value:  sessionID,
+				Path:   "/",
+				Secure: true,
 			}
 
 			http.SetCookie(w, cookie)
@@ -72,9 +59,58 @@ func middleware(next http.Handler) http.Handler {
 	return sessionMiddleware(loggingMiddleware(next))
 }
 
-func handleRuntimeJS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/javascript")
-	w.Write([]byte(runtime))
+func listFiles(dir string) []string {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		log.Fatalf("Failed to read directory %s: %v", dir, err)
+	}
+	var fileList []string
+	for _, file := range files {
+		if !file.IsDir() {
+			fileList = append(fileList, file.Name())
+		}
+	}
+	return fileList
+}
+
+func handleFiles(staticFiles map[string]string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fileName := r.URL.Path[1:]
+
+		if fileName == "" {
+			fileName = "index.html"
+		}
+
+		content, exists := staticFiles[fileName]
+		if !exists {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(content))
+	}
+}
+
+func transclude(fileName string) string {
+	content, err := os.ReadFile("./static/" + fileName)
+	log.Printf("Transcluding file: %s", fileName)
+	if err != nil {
+		log.Fatalf("Failed to read file %s: %v", fileName, err)
+	}
+
+	s := ""
+	lines := strings.Split(string(content), "\n")
+
+	for _, line := range lines {
+		if len(line) != 0 && line[0] == '!' {
+			filename := line[1:]
+			s += transclude(filename)
+		} else {
+			s += line + "\n"
+		}
+	}
+
+	return s
 }
 
 func main() {
@@ -83,9 +119,14 @@ func main() {
 		port = "8080"
 	}
 
-	fs := http.FileServer(http.Dir("static"))
-	http.Handle("/", middleware(fs))
-	http.Handle("/runtime.js", http.HandlerFunc(handleRuntimeJS))
+	files := listFiles("./static")
+
+	staticFiles := make(map[string]string)
+	for _, file := range files {
+		staticFiles[file] = transclude(file)
+	}
+
+	http.Handle("/", middleware(handleFiles(staticFiles)))
 	log.Println("Server listening on port " + port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
