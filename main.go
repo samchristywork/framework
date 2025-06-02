@@ -8,6 +8,20 @@ import (
 	"os"
 )
 
+const runtime = `
+	console.log("Runtime JavaScript loaded");
+	function getCookie(name) {
+	  const value = '; ' + document.cookie;
+	  const parts = value.split('; ' + name + '=');
+	  if (parts.length === 2) return parts.pop().split(';').shift();
+	  return null;
+	}
+
+	function deleteCookie(name) {
+	  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+	}
+`
+
 func generateRandomSessionID() (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)
@@ -32,7 +46,6 @@ func sessionMiddleware(next http.Handler) http.Handler {
 				Name:     "session_id",
 				Value:    sessionID,
 				Path:     "/",
-				HttpOnly: true,
 				Secure:   true,
 			}
 
@@ -59,6 +72,11 @@ func middleware(next http.Handler) http.Handler {
 	return sessionMiddleware(loggingMiddleware(next))
 }
 
+func handleRuntimeJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Write([]byte(runtime))
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -67,6 +85,7 @@ func main() {
 
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/", middleware(fs))
+	http.Handle("/runtime.js", http.HandlerFunc(handleRuntimeJS))
 	log.Println("Server listening on port " + port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
